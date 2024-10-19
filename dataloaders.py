@@ -133,8 +133,8 @@ class Sampler:
         source = source[:, :total_len] 
         return source
     
-    def __len__(self):
-        return len(self.data)
+    def get_data_len(self, spk_id, mode):
+        return len(self.data[(self.data['spk']==spk_id) & (self.data['split']==mode)])
 
     def sample_batch(self, spk_id, batch_size, mode='train'):
         np.random.seed(42)

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #speakers=(0 1 2)[]
-speakers=(237)
+speakers=(1089 237 260 2961 4970 5683 7021 7127 7729 8463)
 # sizes=('large' 'medium' 'small' 'tiny')
 sizes=('medium')
 #sizes=('tiny')
@@ -13,7 +13,7 @@ for spk in ${speakers[@]}; do
     for s in ${sizes[@]}; do
         for r in ${rates[@]}; do
             echo "spk: $spk, size: $s, rate: $r"
-            CUDA_VISIBLE_DEVICES=7 python my_run.py  -s $spk -r $r -i $s -p 'xttsv2_synth_40utt'
+            CUDA_VISIBLE_DEVICES=2 python my_run.py  -s $spk -r $r -i $s -p 'speecht5_synth_50utt' -m 'speecht5'
         done
     done
 done

@@ -12,7 +12,7 @@ import argparse
 # from asteroid.losses.sdr import singlesrc_neg_snr
 
 
-MAX_EPOCH = 1000
+MAX_EPOCH = 500
 torch.cuda.empty_cache()
 
 
@@ -61,15 +61,28 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
     if not os.path.exists(save_path):
         os.makedirs(save_path)
 
+
+    epoch_val_loss = 0
+    val_sdr_improvement = 0
+
     with wandb.init(config=config, project='pse'):  # , entity='jsbae'):
         #wandb.config = config
         wandb.run.name = run_name
 
         optimizer = torch.optim.Adam(net.parameters(), lr=learning_rate)
-        if model_name=='specialist':
-            csv_path = f'/home/jb82/workspace_2024/GenDA_Challenge/Baseline/finetuned_checkpoints/csv_files/{partition}.csv'
-            batch_sampler = Sampler(csv_path, 'train')
-            val_batch_sampler = Sampler(csv_path, 'val')
+        csv_path = f'/home/jb82/workspace_2024/GenDA_Challenge/Baseline/finetuned_checkpoints/csv_files/{partition}.csv'
+        batch_sampler = Sampler(csv_path, 'train')
+        val_batch_sampler = Sampler(csv_path, 'val')
+    
+        # Load validation data
+        # for fixed val samples and noises
+        val_total_num = val_batch_sampler.get_data_len(int(spk_id), 'val')
+        print('# # of val samples:', val_total_num)
+        val_batch = val_batch_sampler.sample_batch(int(spk_id), val_total_num, 'val')
+        VAL_BATCH_SIZE = 1
+
+        val_x = val_batch['x'].to(device)
+        val_t = val_batch['t'].to(device)
             
         # if partition=='audiolm':
         #     val_path = f"/home/anakuzne/data/AudioLM_subset/val/spk_{spk_id}.pt"
@@ -104,10 +117,11 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
         #num_iter = (1000 // config['batch_size']) + 1 if (1000 % config['batch_size']) > 0 else (1000 // config['batch_size'])
 
         seen_mixtures = 45
-        print('# # of train samples:', len(batch_sampler))
+        print('# # of train samples:', batch_sampler.get_data_len(int(spk_id), 'train'))
         num_iter = (seen_mixtures // config['batch_size']) + 1 if (seen_mixtures % config['batch_size']) > 0 else (seen_mixtures // config['batch_size'])
 
         for _ in range(MAX_EPOCH):
+            # TRAIN
             epoch_train_loss = 0
             epoch_sdr_improvement = 0
             net.train()
@@ -125,39 +139,27 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
                 epoch_sdr_improvement += sdr_improvement(y, t, x, reduction='mean')
                 total_steps+=config['batch_size']
 
-            #print(f"Before div: {epoch_sdr_improvement}")
             epoch_train_loss /= num_iter
             epoch_sdr_improvement /= num_iter
-            
-            #print(f"After div: {epoch_sdr_improvement}")
 
-            #Validation loop
+            # VALIDATION
             epoch_val_loss=0
             net.eval()
 
-            VAL_TOTAL_NUM = 5
-            VAL_BATCH_SIZE = 1
-        
-            val_batch = batch_sampler.sample_batch(int(spk_id), VAL_TOTAL_NUM, 'val')
-            x = val_batch['x'].to(device)
-            t = val_batch['t'].to(device)
-
-            epoch_val_loss = 0
-            val_sdr_improvement = 0
-
-            mini_steps = x.shape[0] // VAL_BATCH_SIZE
+            mini_steps = val_x.shape[0] // VAL_BATCH_SIZE
+            assert mini_steps == val_total_num
             for mini_batch_idx in range(mini_steps):
                 start = mini_batch_idx * VAL_BATCH_SIZE
-                end = min(start + VAL_BATCH_SIZE, x.shape[0])
-                x_mini = x[start:end]
-                t_mini = t[start:end]
-                y_mini = M.make_2d(net(x_mini))
-                loss = loss_sdr(y_mini, t_mini).mean()
+                end = min(start + VAL_BATCH_SIZE, val_x.shape[0])
+                x_mini = val_x[start:end]
+                t_mini = val_t[start:end]
+                y_mini = M.make_2d(net(x_mini)).detach()
+                loss = loss_sdr(y_mini, t_mini).mean().detach()
                 val_sdr_improvement += sdr_improvement(y_mini, t_mini, x_mini, reduction='mean')
                 epoch_val_loss += loss.data
 
-            epoch_val_loss /= VAL_TOTAL_NUM
-            val_sdr_improvement /= VAL_TOTAL_NUM
+            epoch_val_loss /= val_total_num
+            val_sdr_improvement /= val_total_num
             #print(f"DEBUG {epoch_train_loss} {epoch_val_loss} {epoch_sdr_improvement}")
 
             #wandb.log({"train_loss": epoch_train_loss.data, "val_loss": epoch_val_loss.data,
@@ -213,10 +215,11 @@ if __name__ == "__main__":
     parser.add_argument("-r", "--learning_rate", type=float, required=True)
     parser.add_argument("-i", "--size", type=str, required=True)
     parser.add_argument("-p", "--partition", type=str, required=True)
+    parser.add_argument("-m", "--model_name", type=str, required=True)
     args = parser.parse_args()
 
     run_train(spk_id=args.speaker_id, size=args.size, 
               learning_rate=args.learning_rate, 
-              model_name='specialist', 
+              model_name=args.model_name,
               partition=args.partition,
               load_ckpt=True, max_iter=None)
