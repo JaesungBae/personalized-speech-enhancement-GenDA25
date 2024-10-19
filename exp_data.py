@@ -23,13 +23,14 @@ example_length: int = int(sample_rate * example_duration)
 
 _host = str(socket.gethostname().split('.')[-3:].pop(0))
 _root_data: str = {
-    "audio": '/media/sdc1/',
-    "gan": '/media/sdb1/Data/',
-    "i-0f85a2401af815ff1": '/data/',
-    "juliet": '/N/u/asivara/datasets/',
-    "j-login1": '/N/u/asivara/datasets/',
-    "r-006": '/N/u/asivara/datasets/',
-    "transformer": '/data/common/',
+    # "audio": '/media/sdc1/',
+    # "gan": '/media/sdb1/Data/',
+    # "i-0f85a2401af815ff1": '/data/',
+    # "juliet": '/N/u/asivara/datasets/',
+    # "j-login1": '/N/u/asivara/datasets/',
+    # "r-006": '/N/u/asivara/datasets/',
+    # "transformer": '/data/common/',
+    'ann': '/mnt/data3/'
 }.get(_host)
 _root_librispeech: str = _root_data + '/librispeech/'
 _root_demand: str = _root_data + '/demand/'
@@ -1112,194 +1113,195 @@ class ContrastiveMixtures(Mixtures):
 
 # expose corpora and speaker lists
 
-df_librispeech = dataframe_librispeech()
-df_musan = dataframe_musan()
-#df_fsd50k = dataframe_fsd50k()
-#df_demand = dataframe_demand()
-speaker_ids_tr, speaker_ids_vl, speaker_ids_te = split_speakers(False)
-speaker_ids_all = speaker_ids_tr + speaker_ids_vl + speaker_ids_te
-#speaker_split_durations = df_librispeech.groupby(
-#    ['speaker_id', 'split']).agg('sum').duration
-'''
-# expose test sets
-data_te_generalist: Mixtures = Mixtures(
-    speaker_ids_te, 'test', split_mixture='test', snr_mixture=(-5, 5)
-data_te_specialist: List[Mixtures] = [
-    Mixtures(speaker_id, 'test', corpus_mixture='musan', corpus_premixture=None,
-             split_mixture='test', snr_mixture=(-5, 5))
-    for speaker_id in speaker_ids_te
-]
-'''
+if __name__ == '__main__':
+    df_librispeech = dataframe_librispeech()
+    df_musan = dataframe_musan()
+    #df_fsd50k = dataframe_fsd50k()
+    #df_demand = dataframe_demand()
+    speaker_ids_tr, speaker_ids_vl, speaker_ids_te = split_speakers(False)
+    speaker_ids_all = speaker_ids_tr + speaker_ids_vl + speaker_ids_te
+    #speaker_split_durations = df_librispeech.groupby(
+    #    ['speaker_id', 'split']).agg('sum').duration
+    '''
+    # expose test sets
+    data_te_generalist: Mixtures = Mixtures(
+        speaker_ids_te, 'test', split_mixture='test', snr_mixture=(-5, 5)
+    data_te_specialist: List[Mixtures] = [
+        Mixtures(speaker_id, 'test', corpus_mixture='musan', corpus_premixture=None,
+                split_mixture='test', snr_mixture=(-5, 5))
+        for speaker_id in speaker_ids_te
+    ]
+    '''
 
-# ##################
-#
-# # instantiate corpora
-# speech_corpus = dataframe_librispeech(lazy_load=True)
-# premixture_corpus = dataframe_demand(lazy_load=True)
-# noise_corpus = dataframe_fsd50k(lazy_load=True)
-#
-# # list out speakers in each partition
-# speaker_ids_tr = sorted(speech_corpus.query(
-#     'subset_id.str.contains("train")').speaker_id.unique())
-# speaker_ids_vl = sorted(speech_corpus.query(
-#     'subset_id.str.contains("dev")').speaker_id.unique())
-# speaker_ids_te = [
-#     121, 672, 908, 1089, 1188, 1221, 1284, 1320, 1995, 2094, 2300, 2961,
-#     3570, 3575, 3729, 4077, 4507, 4970, 4992, 5105, 5639, 5683, 6829, 6930,
-#     7021, 7127, 7176, 7729, 8224, 8230, 8455, 8463, 8555]
-#
-# # pepare speaker-environment pairings for each personalization target
-# num_environments = len(premixture_corpus)
-# speaker_ids_te = speaker_ids_te[:num_environments]
-# premixture_corpus = premixture_corpus.sort_values('filepath').sample(
-#     frac=1, random_state=0).reset_index(drop=True)
-# premixture_corpus.index.name = 'DEMAND'
-# ENV_ID = {k: v for (k, v) in zip(speaker_ids_te, range(num_environments))}
-#
-#
-# class SpeakerAgnosticMixtures:
-#     pass
-#
-# class SpeakerSpecificMixtures:
-#
-#     def __init__(
-#             self,
-#             speaker_id: int,
-#             split: str,
-#             dataset_duration: Optional[int] = None,
-#             snr_premixture: Optional[Union[float, Tuple[float, float]]] = 7.5,
-#             snr_mixture: Optional[Union[float, Tuple[float, float]]] = (-5, 5),
-#     ):
-#         self.index = 0
-#         self.speaker_id = speaker_id
-#         self.split = split
-#         self.duration = dataset_duration
-#         self.corpus_s = speech_corpus.query('speaker_id==@speaker_id')
-#         del self.corpus_s['split']
-#         split = split.replace('pre','')
-#         self.corpus_n = noise_corpus.query('split==@split')
-#         self.len_n = len(self.corpus_n)
-#
-#         # load in all the speech data from the single-speaker
-#         self.speech = []
-#         for filepath in self.corpus_s.filepath:
-#             self.speech.append(wav_read(filepath))
-#         self.speech = np.concatenate(self.speech)
-#
-#         # get the environment SNR
-#         self.environment_snr = snr_premixture
-#         self.environment_id = -1
-#         self.environment_name = ''
-#         self.environment = np.zeros_like(self.speech)
-#         self.scaling = 1
-#
-#         # get the environment ID
-#         if self.environment_snr is not None:
-#             self.environment_id = ENV_ID[speaker_id]
-#             self.environment_name = premixture_corpus.filepath[
-#                 self.environment_id]
-#             self.environment = wav_read(self.environment_name)
-#             self.environment_name = self.environment_name.split('/')[-2].strip()
-#
-#             energy_s = np.sum(self.speech ** 2, axis=-1, keepdims=True)
-#             energy_n = np.sum(self.environment ** 2, axis=-1, keepdims=True)
-#             self.scaling = np.sqrt((energy_s / energy_n) * (
-#                     10 ** (-self.environment_snr / 10.))).squeeze()
-#
-#             self.environment *= self.scaling
-#             self.environment = fix_length(
-#                 self.environment, np.size(self.speech))
-#
-#         # apply the environment
-#         self.data = self.speech + self.environment
-#
-#         # slice data to the relevant size
-#
-#         if self.split == 'pretrain':
-#             start_idx = 0
-#             end_idx = (4 * 60) * sample_rate
-#         elif self.split == 'preval':
-#             start_idx = (4 * 60) * sample_rate
-#             end_idx = (4 * 60 + 30) * sample_rate
-#         elif self.split == 'test':
-#             start_idx = (4 * 60 + 30) * sample_rate
-#             end_idx = (5 * 60) * sample_rate
-#         elif self.split == 'train':
-#             start_idx = (5 * 60) * sample_rate
-#             end_idx = (6 * 60) * sample_rate
-#         elif self.split == 'val':
-#             start_idx = (6 * 60) * sample_rate
-#             end_idx = (6 * 60 + 30) * sample_rate
-#         else:
-#             raise ValueError('invalid split')
-#
-#         self.data = self.data[start_idx:end_idx]
-#
-#         if np.size(self.data) != end_idx - start_idx:
-#             raise IOError('%d %d %d' % (np.size(self.data), end_idx, start_idx))
-#         if self.duration is not None:
-#             self.data = fix_length(self.data, size=int(
-#                 sample_rate*self.duration))
-#
-#         if isinstance(snr_mixture, tuple):
-#             snr_mixture_min = float(min(snr_mixture))
-#             snr_mixture_max = float(max(snr_mixture))
-#         elif isinstance(snr_mixture, (float, int)):
-#             snr_mixture_min = float(snr_mixture)
-#             snr_mixture_max = float(snr_mixture)
-#         elif snr_mixture is None:
-#             snr_mixture_min = None
-#             snr_mixture_max = None
-#         else:
-#             raise ValueError('Expected `snr_mixture` to be a float type or '
-#                              'a tuple of floats.')
-#         self.snr_mixture_min = snr_mixture_min
-#         self.snr_mixture_max = snr_mixture_max
-#
-#         if self.duration is None:
-#             self.duration = np.size(self.data)/sample_rate
-#
-#     def __dict__(self):
-#         return {
-#             'speaker_id': self.speaker_id,
-#             'split': self.split,
-#             'snr_premixture': self.environment_snr,
-#             'snr_mixture_min': self.snr_mixture_min,
-#             'snr_mixture_max': self.snr_mixture_max,
-#             'dataset_duration': self.duration
-#         }
-#
-#     def __repr__(self):
-#         return json.dumps(self.__dict__(), indent=2, sort_keys=True)
-#
-#     def __call__(self, batch_size: int, seed: Optional[int] = None):
-#
-#         if batch_size < 1:
-#             raise ValueError('batch_size must be at least 1.')
-#
-#         if seed is None: self.index += 1
-#         tmp_index: int = 0 if seed is not None else self.index
-#         tmp_rng: Generator = np.random.default_rng(tmp_index)
-#
-#         p = wav_sample(self.data, batch_size, seed=tmp_index)
-#
-#         indices = np.arange(batch_size * tmp_index,
-#                             batch_size * (tmp_index + 1))
-#         n_filepaths = (list(self.corpus_n.filepath.iloc[indices % self.len_n])
-#                        if self.len_n else [])
-#         n = wav_read_multiple(n_filepaths, seed=seed)
-#
-#         post_snrs = np.array([])
-#         post_snrs = tmp_rng.uniform(
-#             self.snr_mixture_min, self.snr_mixture_max,
-#             (batch_size, 1))
-#         x = mix_signals(p, n, post_snrs)
-#
-#         scale_factor = float(np.abs(x).max() + 1e-8)
-#         return Batch(
-#             inputs=torch.cuda.FloatTensor(x) / scale_factor,
-#             targets=torch.cuda.FloatTensor(p) / scale_factor,
-#             pre_snrs=None,
-#             post_snrs=torch.cuda.FloatTensor(post_snrs)
-#         )
-#
+    # ##################
+    #
+    # # instantiate corpora
+    # speech_corpus = dataframe_librispeech(lazy_load=True)
+    # premixture_corpus = dataframe_demand(lazy_load=True)
+    # noise_corpus = dataframe_fsd50k(lazy_load=True)
+    #
+    # # list out speakers in each partition
+    # speaker_ids_tr = sorted(speech_corpus.query(
+    #     'subset_id.str.contains("train")').speaker_id.unique())
+    # speaker_ids_vl = sorted(speech_corpus.query(
+    #     'subset_id.str.contains("dev")').speaker_id.unique())
+    # speaker_ids_te = [
+    #     121, 672, 908, 1089, 1188, 1221, 1284, 1320, 1995, 2094, 2300, 2961,
+    #     3570, 3575, 3729, 4077, 4507, 4970, 4992, 5105, 5639, 5683, 6829, 6930,
+    #     7021, 7127, 7176, 7729, 8224, 8230, 8455, 8463, 8555]
+    #
+    # # pepare speaker-environment pairings for each personalization target
+    # num_environments = len(premixture_corpus)
+    # speaker_ids_te = speaker_ids_te[:num_environments]
+    # premixture_corpus = premixture_corpus.sort_values('filepath').sample(
+    #     frac=1, random_state=0).reset_index(drop=True)
+    # premixture_corpus.index.name = 'DEMAND'
+    # ENV_ID = {k: v for (k, v) in zip(speaker_ids_te, range(num_environments))}
+    #
+    #
+    # class SpeakerAgnosticMixtures:
+    #     pass
+    #
+    # class SpeakerSpecificMixtures:
+    #
+    #     def __init__(
+    #             self,
+    #             speaker_id: int,
+    #             split: str,
+    #             dataset_duration: Optional[int] = None,
+    #             snr_premixture: Optional[Union[float, Tuple[float, float]]] = 7.5,
+    #             snr_mixture: Optional[Union[float, Tuple[float, float]]] = (-5, 5),
+    #     ):
+    #         self.index = 0
+    #         self.speaker_id = speaker_id
+    #         self.split = split
+    #         self.duration = dataset_duration
+    #         self.corpus_s = speech_corpus.query('speaker_id==@speaker_id')
+    #         del self.corpus_s['split']
+    #         split = split.replace('pre','')
+    #         self.corpus_n = noise_corpus.query('split==@split')
+    #         self.len_n = len(self.corpus_n)
+    #
+    #         # load in all the speech data from the single-speaker
+    #         self.speech = []
+    #         for filepath in self.corpus_s.filepath:
+    #             self.speech.append(wav_read(filepath))
+    #         self.speech = np.concatenate(self.speech)
+    #
+    #         # get the environment SNR
+    #         self.environment_snr = snr_premixture
+    #         self.environment_id = -1
+    #         self.environment_name = ''
+    #         self.environment = np.zeros_like(self.speech)
+    #         self.scaling = 1
+    #
+    #         # get the environment ID
+    #         if self.environment_snr is not None:
+    #             self.environment_id = ENV_ID[speaker_id]
+    #             self.environment_name = premixture_corpus.filepath[
+    #                 self.environment_id]
+    #             self.environment = wav_read(self.environment_name)
+    #             self.environment_name = self.environment_name.split('/')[-2].strip()
+    #
+    #             energy_s = np.sum(self.speech ** 2, axis=-1, keepdims=True)
+    #             energy_n = np.sum(self.environment ** 2, axis=-1, keepdims=True)
+    #             self.scaling = np.sqrt((energy_s / energy_n) * (
+    #                     10 ** (-self.environment_snr / 10.))).squeeze()
+    #
+    #             self.environment *= self.scaling
+    #             self.environment = fix_length(
+    #                 self.environment, np.size(self.speech))
+    #
+    #         # apply the environment
+    #         self.data = self.speech + self.environment
+    #
+    #         # slice data to the relevant size
+    #
+    #         if self.split == 'pretrain':
+    #             start_idx = 0
+    #             end_idx = (4 * 60) * sample_rate
+    #         elif self.split == 'preval':
+    #             start_idx = (4 * 60) * sample_rate
+    #             end_idx = (4 * 60 + 30) * sample_rate
+    #         elif self.split == 'test':
+    #             start_idx = (4 * 60 + 30) * sample_rate
+    #             end_idx = (5 * 60) * sample_rate
+    #         elif self.split == 'train':
+    #             start_idx = (5 * 60) * sample_rate
+    #             end_idx = (6 * 60) * sample_rate
+    #         elif self.split == 'val':
+    #             start_idx = (6 * 60) * sample_rate
+    #             end_idx = (6 * 60 + 30) * sample_rate
+    #         else:
+    #             raise ValueError('invalid split')
+    #
+    #         self.data = self.data[start_idx:end_idx]
+    #
+    #         if np.size(self.data) != end_idx - start_idx:
+    #             raise IOError('%d %d %d' % (np.size(self.data), end_idx, start_idx))
+    #         if self.duration is not None:
+    #             self.data = fix_length(self.data, size=int(
+    #                 sample_rate*self.duration))
+    #
+    #         if isinstance(snr_mixture, tuple):
+    #             snr_mixture_min = float(min(snr_mixture))
+    #             snr_mixture_max = float(max(snr_mixture))
+    #         elif isinstance(snr_mixture, (float, int)):
+    #             snr_mixture_min = float(snr_mixture)
+    #             snr_mixture_max = float(snr_mixture)
+    #         elif snr_mixture is None:
+    #             snr_mixture_min = None
+    #             snr_mixture_max = None
+    #         else:
+    #             raise ValueError('Expected `snr_mixture` to be a float type or '
+    #                              'a tuple of floats.')
+    #         self.snr_mixture_min = snr_mixture_min
+    #         self.snr_mixture_max = snr_mixture_max
+    #
+    #         if self.duration is None:
+    #             self.duration = np.size(self.data)/sample_rate
+    #
+    #     def __dict__(self):
+    #         return {
+    #             'speaker_id': self.speaker_id,
+    #             'split': self.split,
+    #             'snr_premixture': self.environment_snr,
+    #             'snr_mixture_min': self.snr_mixture_min,
+    #             'snr_mixture_max': self.snr_mixture_max,
+    #             'dataset_duration': self.duration
+    #         }
+    #
+    #     def __repr__(self):
+    #         return json.dumps(self.__dict__(), indent=2, sort_keys=True)
+    #
+    #     def __call__(self, batch_size: int, seed: Optional[int] = None):
+    #
+    #         if batch_size < 1:
+    #             raise ValueError('batch_size must be at least 1.')
+    #
+    #         if seed is None: self.index += 1
+    #         tmp_index: int = 0 if seed is not None else self.index
+    #         tmp_rng: Generator = np.random.default_rng(tmp_index)
+    #
+    #         p = wav_sample(self.data, batch_size, seed=tmp_index)
+    #
+    #         indices = np.arange(batch_size * tmp_index,
+    #                             batch_size * (tmp_index + 1))
+    #         n_filepaths = (list(self.corpus_n.filepath.iloc[indices % self.len_n])
+    #                        if self.len_n else [])
+    #         n = wav_read_multiple(n_filepaths, seed=seed)
+    #
+    #         post_snrs = np.array([])
+    #         post_snrs = tmp_rng.uniform(
+    #             self.snr_mixture_min, self.snr_mixture_max,
+    #             (batch_size, 1))
+    #         x = mix_signals(p, n, post_snrs)
+    #
+    #         scale_factor = float(np.abs(x).max() + 1e-8)
+    #         return Batch(
+    #             inputs=torch.cuda.FloatTensor(x) / scale_factor,
+    #             targets=torch.cuda.FloatTensor(p) / scale_factor,
+    #             pre_snrs=None,
+    #             post_snrs=torch.cuda.FloatTensor(post_snrs)
+    #         )
+    #

@@ -6,3 +6,4 @@ speakers/
 *.pt
 *.json
 *.txt
+wandb

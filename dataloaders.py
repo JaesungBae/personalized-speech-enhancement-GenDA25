@@ -11,19 +11,20 @@ import soundfile as sf
 
 PAD_INDEX=0
 EPS = 1e-10
+SAMPLING_RATE = 16000
 
 class PSEData(data.Dataset):
     def __init__(self, csv_path, spk_id, mode='train'):
         data = pd.read_csv(csv_path)
         self.files = data[(data['spk']==spk_id) & (data['split']==mode)]['file'].values
         if mode=='train':
-            noise_path = '/data/common/musan/noise/free-sound'
+            noise_path = '/mnt/data3/musan/noise/free-sound'
             noise_files = os.listdir(noise_path)[60:]
         elif mode=='val':
-            noise_path = '/data/common/musan/noise/free-sound'
+            noise_path = '/mnt/data3/musan/noise/free-sound'
             noise_files = os.listdir(noise_path)[:60]
         else:
-            noise_path = '/data/common/musan/noise/sound-bible'
+            noise_path = '/mnt/data3/musan/noise/sound-bible'
             noise_files = os.listdir(noise_path)
 
         self.noise_files = [os.path.join(noise_path, i) for i in noise_files if '.wav' in i]
@@ -110,13 +111,13 @@ def collate_fn(data):
 class Sampler:
     def __init__(self, csv_path, mode='train'):
         if mode=='train':
-            noise_path = '/data/common/musan/noise/free-sound'
+            noise_path = '/mnt/data3/musan/noise/free-sound'
             noise_files = os.listdir(noise_path)[60:]
         elif mode=='val':
-            noise_path = '/data/common/musan/noise/free-sound'
+            noise_path = '/mnt/data3/musan/noise/free-sound'
             noise_files = os.listdir(noise_path)[:60]
         elif mode=='test':
-            noise_path = '/data/common/musan/noise/sound-bible'
+            noise_path = '/mnt/data3/musan/noise/sound-bible'
             noise_files = os.listdir(noise_path)
         if 'ANNOTATIONS' in noise_files:
             noise_files.remove('ANNOTATIONS')
@@ -131,8 +132,11 @@ class Sampler:
         source = torch.tile(source, (1, repeat))
         source = source[:, :total_len] 
         return source
+    
+    def __len__(self):
+        return len(self.data)
 
-    def sample_batch(self,spk_id, batch_size, mode='train'):
+    def sample_batch(self, spk_id, batch_size, mode='train'):
         np.random.seed(42)
 
         data = self.data
@@ -151,17 +155,22 @@ class Sampler:
             idx = np.random.randint(0, len(files))
             source = files.iloc[idx]['file']
             source, fs = torchaudio.load(source)
+            if fs != SAMPLING_RATE:
+                source = torchaudio.functional.resample(source, fs, SAMPLING_RATE)
             if source.shape[1] < total_len:
                 source = self._pad_source(source, total_len)
             elif source.shape[1] > total_len:
-                start_range = source.shape[1] - fs*sec
+                start_range = source.shape[1] - SAMPLING_RATE * sec
                 start_idx = np.random.randint(0, start_range)
                 source = source[:,start_idx:start_idx+total_len]
 
             idx = np.random.randint(0, len(self.noise_files))
             noise, fs = torchaudio.load(os.path.join(self.noise_path, self.noise_files[idx]))
+            if fs != SAMPLING_RATE:
+                noise= torchaudio.functional.resample(noise, fs, SAMPLING_RATE)
             noise = pad_noise(source, noise)
-            SNR = random.randrange(-5, 5) 
+            # SNR = random.randrange(-5, 5) 
+            SNR = random.randrange(-5, 25)  # modify for jsbae
 
             mixture = mix_signals(source, noise, SNR)
             assert mixture.shape[1]==total_len, f"Mixture dim does not match. Mixture {mixture.shape}, required size {total_len}" 
