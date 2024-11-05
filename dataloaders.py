@@ -1,3 +1,4 @@
+import json
 
 import torch.utils.data as data
 import torch
@@ -8,6 +9,8 @@ import torchaudio
 import pandas as pd
 import random
 import soundfile as sf
+
+np.random.seed(123)
 
 PAD_INDEX=0
 EPS = 1e-10
@@ -44,7 +47,7 @@ def is_nan(t):
         return True
     return False
 
-def pad_noise(speech, noise):
+def pad_noise(speech, noise, is_random_noise_cut=False):
     '''
     Cuts noise vector if speech vec is shorter
     Adds noise if speech vector is longer
@@ -59,7 +62,12 @@ def pad_noise(speech, noise):
         noise = noise[:, :noise.shape[1]+diff]          
             
     elif speech_len < noise_len:
-        noise = noise[:,:speech_len]
+        if is_random_noise_cut:
+            start_range = noise_len - speech_len
+            start_idx = np.random.randint(0, start_range)
+            noise = noise[:, start_idx:start_idx+speech_len]
+        else:
+            noise = noise[:,:speech_len]
     return noise
 
 def mix_signals(speech, noise, desired_snr):    
@@ -109,7 +117,8 @@ def collate_fn(data):
 
 
 class Sampler:
-    def __init__(self, csv_path, mode='train'):
+    def __init__(self, csv_path, mode='train', is_random_noise_cut=False):
+        self.is_random_noise_cut = is_random_noise_cut
         if mode=='train':
             noise_path = '/mnt/data3/musan/noise/free-sound'
             noise_files = os.listdir(noise_path)[60:]
@@ -118,7 +127,8 @@ class Sampler:
             noise_files = os.listdir(noise_path)[:60]
         elif mode=='test':
             noise_path = '/mnt/data3/musan/noise/sound-bible'
-            noise_files = os.listdir(noise_path)
+            noise_files = os.listdir(noise_path)  # 88
+            print('number of noise files', len(noise_files))
         if 'ANNOTATIONS' in noise_files:
             noise_files.remove('ANNOTATIONS')
         if 'LICENSE' in noise_files:
@@ -126,6 +136,8 @@ class Sampler:
         self.noise_path = noise_path
         self.noise_files = noise_files
         self.data = pd.read_csv(csv_path)
+        
+        self.curr_noise_idx = 0
 
     def _pad_source(self, source, total_len):
         repeat = (total_len//source.shape[1]) +1
@@ -136,7 +148,9 @@ class Sampler:
     def get_data_len(self, spk_id, mode):
         return len(self.data[(self.data['spk']==spk_id) & (self.data['split']==mode)])
 
-    def sample_batch(self, spk_id, batch_size, mode='train'):
+    def sample_batch(self, spk_id, batch_size, mode='train', mix_snr=None):
+        if mix_snr is not None:
+            assert mode != 'train' and mode != 'val', "mix_snr is only for test mode"
         np.random.seed(42)
 
         data = self.data
@@ -164,14 +178,207 @@ class Sampler:
                 start_idx = np.random.randint(0, start_range)
                 source = source[:,start_idx:start_idx+total_len]
 
-            idx = np.random.randint(0, len(self.noise_files))
-            noise, fs = torchaudio.load(os.path.join(self.noise_path, self.noise_files[idx]))
+            if mode != 'test':
+                idx = np.random.randint(0, len(self.noise_files))
+                noise, fs = torchaudio.load(os.path.join(self.noise_path, self.noise_files[idx]))
+            else:
+                # Fix noise in test mode
+                print('curr_noise_idx', self.curr_noise_idx)
+                noise, fs = torchaudio.load(os.path.join(self.noise_path, self.noise_files[self.curr_noise_idx]))
+                self.curr_noise_idx += 1
             if fs != SAMPLING_RATE:
                 noise= torchaudio.functional.resample(noise, fs, SAMPLING_RATE)
-            noise = pad_noise(source, noise)
+            noise = pad_noise(source, noise, self.is_random_noise_cut)
             # SNR = random.randrange(-5, 5) 
-            SNR = random.randrange(-5, 25)  # modify for jsbae
 
+            if mix_snr is None:
+                SNR = random.randrange(-5, 5)  # modify for jsbae
+            else:
+                SNR = mix_snr
+            mixture = mix_signals(source, noise, SNR)
+            assert mixture.shape[1]==total_len, f"Mixture dim does not match. Mixture {mixture.shape}, required size {total_len}" 
+            mixtures.append(mixture)
+            targets.append(source)
+            batch_size-=1
+        #print('--------------')
+        #print(f"SPK {spk_id} {mixtures[0].sum()} {targets[0].sum()}")
+
+        return {'x': torch.stack(mixtures, dim=1).squeeze(0), "t":torch.stack(targets, dim=1).squeeze(0)}
+
+
+class SamplerAll:
+    "Use all nosie files for "
+    def __init__(self, csv_path, mode='train'):
+        self.noises = []
+        self._load_noise('/mnt/data3/musan/noise/free-sound')
+        self._load_noise('/mnt/data3/musan/noise/sound-bible')
+        print('# Total number of noises:', len(self.noises))
+
+        self.data = pd.read_csv(csv_path)
+    
+    def _load_noise(self, noise_path):
+        noise_files = os.listdir(noise_path)
+        for noise_file in noise_files:
+            if 'ANNOTATIONS' in noise_file:
+                continue
+            if 'LICENSE' in noise_file:
+                continue
+            noise, fs = torchaudio.load(os.path.join(noise_path, noise_file))
+            if fs != SAMPLING_RATE:
+                noise= torchaudio.functional.resample(noise, fs, SAMPLING_RATE)
+            self.noises.append(noise)
+        
+    def _pad_source(self, source, total_len):
+        repeat = (total_len//source.shape[1]) +1
+        source = torch.tile(source, (1, repeat))
+        source = source[:, :total_len] 
+        return source
+    
+    def get_data_len(self, spk_id, mode):
+        return len(self.data[(self.data['spk']==spk_id) & (self.data['split']==mode)])
+
+    def sample_batch(self, spk_id, batch_size, mode='train', mix_snr=None):
+        if mix_snr is not None:
+            assert mode != 'train' and mode != 'val', "mix_snr is only for test mode"
+        np.random.seed(42)
+
+        data = self.data
+        files = data[(data['spk']==spk_id) & (data['split']==mode)]
+
+        #print(files[:3], len(files))
+        sec = 4
+        fs = 16000
+
+        total_len = fs*sec
+
+        mixtures = []
+        targets = []
+
+        noise_idx = 0
+        while batch_size:
+            idx = np.random.randint(0, len(files))
+            source = files.iloc[idx]['file']
+            source, fs = torchaudio.load(source)
+            if fs != SAMPLING_RATE:
+                source = torchaudio.functional.resample(source, fs, SAMPLING_RATE)
+            if source.shape[1] < total_len:
+                source = self._pad_source(source, total_len)
+            elif source.shape[1] > total_len:
+                start_range = source.shape[1] - SAMPLING_RATE * sec
+                start_idx = np.random.randint(0, start_range)
+                source = source[:,start_idx:start_idx+total_len]
+
+            # choose random noise
+            if mode == 'train':
+                # only mix nosie when it is train mode
+                noise_idx = np.random.randint(0, len(self.noises))
+            else:
+                noise_idx += 1  # it will start from 1, but ignore this.
+            noise = pad_noise(source, self.noises[noise_idx])
+            # SNR = random.randrange(-5, 5) 
+
+            if mix_snr is None:
+                SNR = random.randrange(-5, 5)  # modify for jsbae
+            else:
+                SNR = mix_snr
+            mixture = mix_signals(source, noise, SNR)
+            assert mixture.shape[1]==total_len, f"Mixture dim does not match. Mixture {mixture.shape}, required size {total_len}" 
+            mixtures.append(mixture)
+            targets.append(source)
+            batch_size-=1
+        #print('--------------')
+        #print(f"SPK {spk_id} {mixtures[0].sum()} {targets[0].sum()}")
+
+        return {'x': torch.stack(mixtures, dim=1).squeeze(0), "t":torch.stack(targets, dim=1).squeeze(0)}
+
+class SamplerFixNoise:
+    def __init__(self, csv_path, mode='train', is_random_noise_cut=False):
+        self.is_random_noise_cut = is_random_noise_cut
+        self.noise_path = '/mnt/data3/musan/noise/sound-bible'
+        self.noise_dict = self._load_soundbible_noise()
+        print('# Total number of noises:', len(self.noise_dict))
+
+        self.data = pd.read_csv(csv_path).astype({'spk': 'str'})  # change speaker dtype to str
+        with open('/home/jb82/workspace_2024/GenDA_Challenge/Baseline/spk_noise_set.json', 'r') as f:
+            self.spk_noise_set = json.load(f)
+    
+    def _load_soundbible_noise(self):
+        noise_dict = {}
+        noise_files = os.listdir(self.noise_path)
+        for noise_file in noise_files:
+            if 'ANNOTATIONS' in noise_file:
+                continue
+            if 'LICENSE' in noise_file:
+                continue
+            noise, fs = torchaudio.load(os.path.join(self.noise_path, noise_file))
+            if fs != SAMPLING_RATE:
+                noise= torchaudio.functional.resample(noise, fs, SAMPLING_RATE)
+            noise_dict[os.path.basename(noise_file)] = noise
+        return noise_dict
+
+    def _pad_source(self, source, total_len):
+        repeat = (total_len//source.shape[1]) +1
+        source = torch.tile(source, (1, repeat))
+        source = source[:, :total_len] 
+        return source
+    
+    def get_data_len(self, spk_id, mode):
+        return len(self.data[(self.data['spk']==str(spk_id)) & (self.data['split']==mode)])
+
+    def sample_batch(self, spk_id, batch_size, mode='train', mix_snr=None):
+        if mix_snr is not None:
+            assert mode != 'train' and mode != 'val', "mix_snr is only for test mode"
+        np.random.seed(42)
+
+        data = self.data
+        files = data[(data['spk']==str(spk_id)) & (data['split']==mode)]
+        noise_files = self.spk_noise_set[str(spk_id)]
+
+        #print(files[:3], len(files))
+        sec = 4
+        fs = 16000
+
+        total_len = fs*sec
+
+        mixtures = []
+        targets = []
+
+        noise_cnt = [0] * len(noise_files)
+        while batch_size:
+            # Load sources
+            idx = random.randint(0, len(files) - 1)
+            source = files.iloc[idx]['file']
+            source, fs = torchaudio.load(source)
+            if fs != SAMPLING_RATE:
+                source = torchaudio.functional.resample(source, fs, SAMPLING_RATE)
+            if source.shape[1] < total_len:
+                source = self._pad_source(source, total_len)
+            elif source.shape[1] > total_len:
+                start_range = source.shape[1] - SAMPLING_RATE * sec
+                start_idx = random.randint(0, start_range - 1)
+                source = source[:,start_idx:start_idx+total_len]
+
+            # Load noise
+            if mode != 'test':
+                # Randomly choose noise
+                idx = random.randint(0, len(noise_files) - 1)
+                noise_cnt[idx] += 1
+                noise, fs = torchaudio.load(os.path.join(self.noise_path, noise_files[idx]))
+            else:
+                # Fix noise in test mode
+                print('curr_noise_idx', self.curr_noise_idx)
+                noise, fs = torchaudio.load(os.path.join(self.noise_path, noise_files[self.curr_noise_idx]))
+                self.curr_noise_idx += 1
+            if fs != SAMPLING_RATE:
+                noise= torchaudio.functional.resample(noise, fs, SAMPLING_RATE)
+            noise = pad_noise(source, noise, self.is_random_noise_cut)
+            # SNR = random.randrange(-5, 5) 
+
+            # Mix noise
+            if mix_snr is None:
+                SNR = random.randrange(-5, 5)  # modify for jsbae
+            else:
+                SNR = mix_snr
             mixture = mix_signals(source, noise, SNR)
             assert mixture.shape[1]==total_len, f"Mixture dim does not match. Mixture {mixture.shape}, required size {total_len}" 
             mixtures.append(mixture)
