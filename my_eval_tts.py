@@ -15,12 +15,12 @@ from collections import defaultdict
 # from score import Score
 import torchaudio
 
-def get_spks():
-    spks = list(os.listdir('../data'))
+def get_spks(gt_data_path):
+    spks = list(os.listdir(gt_data_path))
     return sorted(spks)
 
-def get_reference_speech(spk):
-    reference_wav = glob.glob(os.path.join('../data', spk, 'reference_wav', '*.wav'))
+def get_reference_speech(spk, gt_data_path):
+    reference_wav = glob.glob(os.path.join(gt_data_path, spk, 'reference_wav', '*.wav'))
     return reference_wav[0]
 
 
@@ -171,11 +171,17 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     # eval_metrics = ['SECS', 'Whipser']
     # eval_metrics = ['Resemblyzer']
-    eval_metrics = ['SpeechBrain_Ecapa']
-    spks = get_spks()
+    eval_metrics = ['SECS', 'Whisper', 'Resemblyzer', 'SpeechBrain_Ecapa']
+    eval_metrics = ['Whisper']
     lrs = [1e-6]
+    save_path = '../results/eval_out_tts_virtual'
+    os.makedirs(save_path, exist_ok=True)
+    gt_data_path = '../data_virtual'
+    synth_data_path = '../synth_data_virtual'
     
     models = ['gt', 'xttsv2', 'speecht5', 'yourtts']
+
+    spks = get_spks(gt_data_path)
 
     if 'SECS' in eval_metrics:
         from speechbrain.pretrained import EncoderClassifier
@@ -185,18 +191,18 @@ if __name__ == '__main__':
             scores = []
             utmos_scores = []
             for spk in tqdm(spks):
-                referecne_wav_path = get_reference_speech(spk)
+                referecne_wav_path = get_reference_speech(spk, gt_data_path=gt_data_path)
 
                 if model == 'gt':
-                    wav_list = glob.glob(os.path.join('../data', spk, 'wavs', '*.wav'))
+                    wav_list = glob.glob(os.path.join(gt_data_path, spk, 'wavs', '*.wav'))
                     assert len(wav_list) == 50
                 else:
-                    wav_list = glob.glob(os.path.join('../synth_data', spk, f'{spk}_{model}_*.wav'))
+                    wav_list = glob.glob(os.path.join(synth_data_path, spk, f'{spk}_{model}_*.wav'))
                     assert len(wav_list) == 50
-                tmp_utmos = calc_utmos(wav_list)
-                # tmp_scores = calc_spk_metrics(referecne_wav_path, wav_list, classifier)
-                # scores += tmp_scores
-                utmos_scores += tmp_utmos
+                # tmp_utmos = calc_utmos(wav_list)
+                tmp_scores = calc_spk_metrics(referecne_wav_path, wav_list, classifier)
+                scores += tmp_scores
+                # utmos_scores += tmp_utmos
             assert len(scores) == 50 * len(spks)
             out[model] = {
                 "SECS": np.mean(scores),
@@ -206,18 +212,25 @@ if __name__ == '__main__':
             print('mean score:', np.mean(scores))
             # print('std nscore:', sum([(s - sum(scores) / len(scores)) ** 2 for s in scores]) / len(scores) ** 0.5)
             print('95% CI:', (np.percentile(scores, 97.5) - np.percentile(scores, 2.5)) / 2)
-        with open('../eval_out/tts results.txt', 'w') as f:
+        with open(f'{save_path}/secs_xvec.txt', 'w') as f:
             for model in out:
                 tmp = f'{model}\t'
                 for k, v in out[model].items():
                     tmp += f'{v:.3f}\t'
                 f.write(tmp[:-1] + '\n')
     
-    if 'Whipser' in eval_metrics:
+    if 'Whisper' in eval_metrics:
         wer_cal = WER_cal()
         out = {}
         sentences = defaultdict(list)
-        with open('/home/jb82/workspace_2024/GenDA_Challenge/Baseline/synth_sentences.csv', 'r') as f:
+        if gt_data_path == '../data':
+            gt_text_path = '../test_data.csv'
+            text_path = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/synth_sentences.csv'
+        elif gt_data_path == '../data_virtual':
+            gt_text_path = '../test_data_virtual.csv'
+            text_path = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/synth_sentences_virtual.csv'
+
+        with open(text_path, 'r') as f:
             lines = f.readlines()
             for line in lines:
                 spk_id, sentence = line.strip().split('\t')
@@ -226,7 +239,7 @@ if __name__ == '__main__':
 
         # Use different setences set for gt
         gt_sentences = {}
-        with open('../test_data.csv', 'r') as f:
+        with open(gt_text_path, 'r') as f:
             lines = f.readlines()
             for line in lines:
                 w, t = line.strip().split('\t')
@@ -236,7 +249,7 @@ if __name__ == '__main__':
             total_score = 0
             for spk in tqdm(spks):
                 if model == 'gt':
-                    wav_list = glob.glob(os.path.join('../data', spk, 'wavs', '*.wav'))
+                    wav_list = glob.glob(os.path.join(gt_data_path, spk, 'wavs', '*.wav'))
                     assert len(wav_list) == 50
                     wav_list = sorted(wav_list)
 
@@ -246,7 +259,7 @@ if __name__ == '__main__':
                         tmp_sentences.append(t)
                     score = wer_cal.cal_wer(wav_list, tmp_sentences)
                 else:
-                    wav_list = glob.glob(os.path.join('../synth_data', spk, f'{spk}_{model}_*.wav'))
+                    wav_list = glob.glob(os.path.join(synth_data_path, spk, f'{spk}_{model}_*.wav'))
                     assert len(wav_list) == 50
                     wav_list = sorted(wav_list)
                     assert len(sentences[spk]) == 50    
@@ -256,7 +269,7 @@ if __name__ == '__main__':
                 print(spk, 'wer', score)
             out[model] = {'WER': total_score / len(spks)}
 
-        with open('../eval_out/tts_whisper_result.txt', 'w') as f:
+        with open(f'{save_path}/tts_whisper_result.txt', 'w') as f:
             for model in out:
                 tmp = f'{model}\t'
                 for k, v in out[model].items():
@@ -274,13 +287,13 @@ if __name__ == '__main__':
             scores = []
             utmos_scores = []
             for spk in tqdm(spks):
-                referecne_wav_path = get_reference_speech(spk)
+                referecne_wav_path = get_reference_speech(spk, gt_data_path=gt_data_path)
 
                 if model == 'gt':
-                    wav_list = glob.glob(os.path.join('../data', spk, 'wavs', '*.wav'))
+                    wav_list = glob.glob(os.path.join(gt_data_path, spk, 'wavs', '*.wav'))
                     assert len(wav_list) == 50
                 else:
-                    wav_list = glob.glob(os.path.join('../synth_data', spk, f'{spk}_{model}_*.wav'))
+                    wav_list = glob.glob(os.path.join(synth_data_path, spk, f'{spk}_{model}_*.wav'))
                     assert len(wav_list) == 50
                 tmp = cal_resemblyzer_spk_distance(referecne_wav_path, wav_list, encoder)
                 print(tmp)
@@ -294,7 +307,7 @@ if __name__ == '__main__':
             print('mean score:', np.mean(scores))
             # print('std nscore:', sum([(s - sum(scores) / len(scores)) ** 2 for s in scores]) / len(scores) ** 0.5)
             print('95% CI:', (np.percentile(scores, 97.5) - np.percentile(scores, 2.5)) / 2)
-        with open('../eval_out/tts_resemblyzer_results.txt', 'w') as f:
+        with open(f'{save_path}/tts_resemblyzer_results.txt', 'w') as f:
             for model in out:
                 tmp = f'{model}\t'
                 for k, v in out[model].items():
@@ -310,13 +323,13 @@ if __name__ == '__main__':
             scores = []
             utmos_scores = []
             for spk in tqdm(spks):
-                referecne_wav_path = get_reference_speech(spk)
+                referecne_wav_path = get_reference_speech(spk, gt_data_path=gt_data_path)
 
                 if model == 'gt':
-                    wav_list = glob.glob(os.path.join('../data', spk, 'wavs', '*.wav'))
+                    wav_list = glob.glob(os.path.join(gt_data_path, spk, 'wavs', '*.wav'))
                     assert len(wav_list) == 50
                 else:
-                    wav_list = glob.glob(os.path.join('../synth_data', spk, f'{spk}_{model}_*.wav'))
+                    wav_list = glob.glob(os.path.join(synth_data_path, spk, f'{spk}_{model}_*.wav'))
                     assert len(wav_list) == 50
                 tmp = calc_spk_metrics(referecne_wav_path, wav_list, classifier)
                 scores += tmp
@@ -329,7 +342,7 @@ if __name__ == '__main__':
             print('mean score:', np.mean(scores))
             # print('std nscore:', sum([(s - sum(scores) / len(scores)) ** 2 for s in scores]) / len(scores) ** 0.5)
             print('95% CI:', (np.percentile(scores, 97.5) - np.percentile(scores, 2.5)) / 2)
-        with open('../eval_out/tts_speechbrain_ecapa_results.txt', 'w') as f:
+        with open(f'{save_path}/tts_speechbrain_ecapa_results.txt', 'w') as f:
             for model in out:
                 tmp = f'{model}\t'
                 for k, v in out[model].items():

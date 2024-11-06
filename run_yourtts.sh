@@ -5,7 +5,7 @@ speakers=(1089 237 260 2961 4970 5683 7021 7127 7729 8463)
 # sizes=('large' 'medium' 'small' 'tiny')
 sizes=('medium' 'small' 'tiny')
 #sizes=('tiny')
-rates=(0.000001)
+rates=(0.0001)
 #rates=(0.00001)
 
 

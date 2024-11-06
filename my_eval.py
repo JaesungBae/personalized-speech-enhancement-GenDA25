@@ -214,6 +214,7 @@ def run_eval(size, model, lr, partition, spks, epoch, num_repeat=10):
 
 
 if __name__ == '__main__':
+    assert False, 'You are working with "my_eva.py" file.'
     # Fix seed
     np.random.seed(123)
     torch.manual_seed(123)

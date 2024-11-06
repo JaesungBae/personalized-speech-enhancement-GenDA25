@@ -13,8 +13,8 @@ for spk in ${speakers[@]}; do
     for s in ${sizes[@]}; do
         for r in ${rates[@]}; do
             echo "spk: $spk, size: $s, rate: $r"
-            CUDA_VISIBLE_DEVICES=6 python my_run.py  -s $spk -r $r -i $s -p 'speecht5_synth_50utt' -m 'speecht5'
-            CUDA_VISIBLE_DEVICES=6 python my_run.py  -s $spk -r $r -i $s -p 'speecht5_synth_250utt' -m 'speecht5'
+            CUDA_VISIBLE_DEVICES=2 python my_run_args.py  -s $spk -r $r -i $s -p 'yourtts_synth_50utt' -m 'yourtts' -ex 'fixnoise_1000'
+            CUDA_VISIBLE_DEVICES=2 python my_run_args.py  -s $spk -r $r -i $s -p 'yourtts_synth_250utt' -m 'yourtts' -ex 'fixnoise_1000'
         done
     done
 done

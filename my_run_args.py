@@ -13,22 +13,10 @@ import argparse
 # from asteroid.losses.sdr import singlesrc_neg_snr
 
 
-MIN_EPOCH = 0
-MAX_EPOCH = 201
-torch.cuda.empty_cache()
-IS_RAND_VAL = False
-SAMPLER_NAME = 'SamplerFixNoise'
-SAVE_FOLDER = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/results/finetuned_checkpoints_-5to5_fixnoise_randomcut'
-BATCH_SIZE = 8
-
-print('#########################3')
-print('# SAMPLER:', SAMPLER_NAME)
-print('# save_path:', SAVE_FOLDER)
-print('# Batch Size:', BATCH_SIZE)
-print('#########################')
 
 
-def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_ckpt=False, max_iter=None):
+def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_ckpt=False, max_iter=None,
+              min_epoch=0, max_epoch=200, is_rand_val=False, sampler_name=None, save_folder=None, batch_size=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     checkpoint_path = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/baseline_checkpoints'
@@ -64,7 +52,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
             print(param_group['lr'], 'changed to', learning_rate)
             param_group['lr'] = learning_rate
 
-    config['batch_size'] = BATCH_SIZE
+    config['batch_size'] = batch_size
     config['loss_type'] = 'neg_sisdr'
     config['fine_tune']='synthesized'
     config['seconds'] = {'train':60, 'val':30}
@@ -78,7 +66,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
         run_name = f"new_{model_name}_spk{spk_id}_{size}_{learning_rate}_{partition}"
     else:
         run_name = f"new_{model_name}_spk{spk_id}_{size}_{learning_rate}_no_init"
-    save_path = os.path.join(SAVE_FOLDER, run_name)
+    save_path = os.path.join(save_folder, run_name)
 
     print(f"> run name: {run_name}")
 
@@ -95,16 +83,16 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
         # csv_path = f'/home/jb82/workspace_2024/GenDA_Challenge/Baseline/finetuned_checkpoints/csv_files/{partition}.csv'
         csv_path = f'/home/jb82/workspace_2024/GenDA_Challenge/Baseline/csv_files/{partition}.csv'
 
-        if SAMPLER_NAME == 'Sampler':
+        if sampler_name == 'Sampler':
             batch_sampler = Sampler(csv_path, 'train')
             val_batch_sampler = Sampler(csv_path, 'val')
-        elif SAMPLER_NAME == 'SamplerAll':
+        elif sampler_name == 'SamplerAll':
             batch_sampler = SamplerAll(csv_path, 'train')
             val_batch_sampler = SamplerAll(csv_path, 'val')
-        elif SAMPLER_NAME == 'SamplerRandomNoiseCut':
+        elif sampler_name == 'SamplerRandomNoiseCut':
             batch_sampler = Sampler(csv_path, 'train', is_random_noise_cut=True)
             val_batch_sampler = Sampler(csv_path, 'val', is_random_noise_cut=True)
-        elif SAMPLER_NAME == 'SamplerFixNoise':
+        elif sampler_name == 'SamplerFixNoise':
             batch_sampler = SamplerFixNoise(csv_path, 'train', is_random_noise_cut=False)
             val_batch_sampler = SamplerFixNoise(csv_path, 'val', is_random_noise_cut=False)
         else:
@@ -113,7 +101,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
         train_total_num = batch_sampler.get_data_len(spk_id, 'train')
         print('# # of train samples:', train_total_num)
     
-        if not IS_RAND_VAL:
+        if not is_rand_val:
             # Load validation data
             # for fixed val samples and noises
             val_total_num = val_batch_sampler.get_data_len(spk_id, 'val')  # repeat 5 times
@@ -121,7 +109,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
             val_batch_1 = val_batch_sampler.sample_batch(spk_id, val_total_num, 'val')
             val_batch_2 = val_batch_sampler.sample_batch(spk_id, val_total_num, 'val')
             val_batch_3 = val_batch_sampler.sample_batch(spk_id, val_total_num, 'val')
-            VAL_BATCH_SIZE = 8
+            VAL_batch_size = 8
 
             val_x = torch.cat([val_batch_1['x'], val_batch_2['x'], val_batch_3['x']], dim=0).to(device)
             val_t = torch.cat([val_batch_1['t'], val_batch_2['t'], val_batch_3['t']], dim=0).to(device)
@@ -143,7 +131,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
         print('# # of train samples:', batch_sampler.get_data_len(spk_id, 'train'))
         num_iter = (seen_mixtures // config['batch_size']) + 1 if (seen_mixtures % config['batch_size']) > 0 else (seen_mixtures // config['batch_size'])
 
-        for _ in range(MAX_EPOCH):
+        for _ in range(max_epoch):
             # TRAIN
             s_time = time.time()
             epoch_train_loss = 0
@@ -175,23 +163,23 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
                 epoch_val_loss=0
                 net.eval()
                 
-                if IS_RAND_VAL:
+                if is_rand_val:
                     raise NotImplementedError
                     # Load validation data
                     # for fixed val samples and noises
                     val_total_num = val_batch_sampler.get_data_len(spk_id, 'val')
                     print('# # of val samples:', val_total_num)
                     val_batch = val_batch_sampler.sample_batch(spk_id, val_total_num, 'val')
-                    VAL_BATCH_SIZE = 1
+                    VAL_batch_size = 1
 
                     val_x = val_batch['x'].to(device)
                     val_t = val_batch['t'].to(device)
 
-                mini_steps = val_x.shape[0] // VAL_BATCH_SIZE
+                mini_steps = val_x.shape[0] // VAL_batch_size
                 # assert mini_steps == val_total_num, f'{mini_steps} != {val_total_num}'
                 for mini_batch_idx in range(mini_steps):
-                    start = mini_batch_idx * VAL_BATCH_SIZE
-                    end = min(start + VAL_BATCH_SIZE, val_x.shape[0])
+                    start = mini_batch_idx * VAL_batch_size
+                    end = min(start + VAL_batch_size, val_x.shape[0])
                     x_mini = val_x[start:end]
                     t_mini = val_t[start:end]
                     y_mini = M.make_2d(net(x_mini)).detach()
@@ -213,7 +201,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
                 print(f'> [Epoch]:{ep+1} [Train Loss]: {epoch_train_loss:.4f}, takes {epoch_train_time:.2f} sec')
                 print(f'> [Epoch]:{ep+1} [Val Loss]: {float(epoch_val_loss):.4f}, takes {epoch_val_time:.2f} sec')
 
-                if ep in [10, 25, 50, 100, 200]:
+                if ep in [100, 200]:
                     print(f'# Save for {ep} ckpt')
                     ckpt_name = f"{save_path}/model_{ep+1}.ckpt"
                     ckpt = {}
@@ -246,7 +234,7 @@ def run_train(spk_id, size, learning_rate, model_name, partition='120sec', load_
                     # no_improvement += (num_iter*config['batch_size']) + 1 if (seen_mixtures % config['batch_size']) > 0 else (seen_mixtures // config['batch_size'])
                     no_improvement += 1
                 
-                if no_improvement >= 3 and ep > MIN_EPOCH:
+                if no_improvement >= 3 and ep > min_epoch:
                     print(f"> Training finished [epochs]:{ep+1} [steps]: {total_steps}")
                     # Save best checkpoint first
                     torch.save(best_ckpt, best_ckpt_name)
@@ -271,10 +259,50 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--size", type=str, required=True)
     parser.add_argument("-p", "--partition", type=str, required=True)
     parser.add_argument("-m", "--model_name", type=str, required=True)
+    parser.add_argument("-ex", "--experiment", type=str, required=True)
     args = parser.parse_args()
+
+    if args.experiment == 'fixnosie_200':
+        min_epoch = 0
+        max_epoch = 201
+        torch.cuda.empty_cache()
+        is_rand_val = False
+        sampler_name = 'SamplerFixNoise'
+        save_folder = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/results/finetuned_checkpoints_-5to5_fixnoise_randomcut'
+        batch_size = 8
+    elif args.experiment == 'fixnoise_1000':
+        min_epoch = 0
+        max_epoch = 1001
+        torch.cuda.empty_cache()
+        is_rand_val = False
+        sampler_name = 'SamplerFixNoise'
+        save_folder = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/results/finetuned_checkpoints_-5to5_fixnoise_randomcut_1000'
+        batch_size = 8
+    elif args.experiment == 'fixnoise_200_virtual':
+        min_epoch = 0
+        max_epoch = 201
+        torch.cuda.empty_cache()
+        is_rand_val = False
+        sampler_name = 'SamplerFixNoise'
+        save_folder = '/home/jb82/workspace_2024/GenDA_Challenge/Baseline/results/finetuned_checkpoints_-5to5_fixnoise_randomcut_virtual'
+        batch_size = 8
+    else:
+        raise ValueError('Invalid Experiment Name')
+
+    print('#########################3')
+    print('# SAMPLER:', sampler_name)
+    print('# save_path:', save_folder)
+    print('# Batch Size:', batch_size)
+    print('#########################')
 
     run_train(spk_id=args.speaker_id, size=args.size, 
               learning_rate=args.learning_rate, 
               model_name=args.model_name,
               partition=args.partition,
-              load_ckpt=True, max_iter=None)
+              load_ckpt=True, max_iter=None,
+              min_epoch=min_epoch,
+              max_epoch=max_epoch,
+              is_rand_val=is_rand_val,
+              sampler_name=sampler_name,
+              save_folder=save_folder,
+              batch_size=batch_size)
